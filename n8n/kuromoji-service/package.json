@@ -1,0 +1,17 @@
+{
+  "name": "kuromoji-service",
+  "version": "1.0.0",
+  "description": "일본어 형태소 분석 + 한국어 발음 변환 마이크로서비스",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "kuromoji": "^0.1.2"
+  }
+}

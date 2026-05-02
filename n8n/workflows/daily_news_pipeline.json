@@ -1,0 +1,144 @@
+{
+  "name": "Daily Japanese News Pipeline",
+  "_documentation": {
+    "purpose": "매일 06:00 KST에 일본 RSS를 수집하여 형태소 분석 → 한국어 발음 변환 → LLM 번역 → Supabase 저장",
+    "import_guide": [
+      "1) n8n 인스턴스의 Workflows > Import from File 로 본 JSON을 임포트합니다.",
+      "2) 자격 증명을 연결합니다: Supabase(SERVICE_ROLE_KEY), Groq API.",
+      "3) n8n Settings > Variables 에서 환경 변수 KUROMOJI_URL 을 등록합니다 (예: https://your-kuromoji.up.railway.app).",
+      "4) 'Read RSS' 노드의 URL을 실제 사용 RSS로 교체합니다.",
+      "5) 'Tokenize (Kuromoji)' 노드는 ../kuromoji-service/ 코드를 Railway/Fly.io에 별도 배포한 URL을 사용합니다.",
+      "6) 골격 상태이므로 실 가동 전 각 노드의 입출력을 검증해야 합니다."
+    ],
+    "kuromoji_microservice_hint": "이 저장소의 n8n/kuromoji-service/ 디렉토리에 Express + kuromoji 기반 마이크로서비스 코드가 포함되어 있습니다. POST /tokenize { text } -> { tokens: [{surface, reading_kana, reading, pos, startIdx, endIdx}, ...] }"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 0 21 * * *" }
+          ]
+        }
+      },
+      "id": "node-cron",
+      "name": "Cron 06:00 KST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "_note": "UTC 21:00 = KST 06:00"
+    },
+    {
+      "parameters": {
+        "url": "https://www3.nhk.or.jp/rss/news/cat0.xml",
+        "options": {}
+      },
+      "id": "node-rss",
+      "name": "Read RSS (NHK)",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// 중복 제거: source_url 해시 기준\nconst seen = new Set();\nreturn items.filter(it => {\n  const url = it.json.link;\n  if (!url || seen.has(url)) return false;\n  seen.add(url);\n  return true;\n}).slice(0, 20);"
+      },
+      "id": "node-dedupe",
+      "name": "Dedupe (max 20)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.KUROMOJI_URL }}/tokenize",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"text\": $json[\"contentSnippet\"] || $json[\"title\"]\n}",
+        "options": {}
+      },
+      "id": "node-tokenize",
+      "name": "Tokenize (Kuromoji)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [860, 300],
+      "_note": "출력 예: { tokens: [{surface, reading_kana, pos}, ...] }"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 가타카나 -> 한국어 발음 매핑 (간이 매핑 테이블 예시)\nconst kanaToKorean = {\n  'ア':'아','イ':'이','ウ':'우','エ':'에','オ':'오',\n  'カ':'카','キ':'키','ク':'쿠','ケ':'케','コ':'코',\n  'サ':'사','シ':'시','ス':'스','セ':'세','ソ':'소',\n  'タ':'타','チ':'치','ツ':'츠','テ':'테','ト':'토',\n  'ナ':'나','ニ':'니','ヌ':'누','ネ':'네','ノ':'노',\n  'ハ':'하','ヒ':'히','フ':'후','ヘ':'헤','ホ':'호',\n  'マ':'마','ミ':'미','ム':'무','メ':'메','モ':'모',\n  'ヤ':'야','ユ':'유','ヨ':'요',\n  'ラ':'라','リ':'리','ル':'루','レ':'레','ロ':'로',\n  'ワ':'와','ヲ':'오','ン':'ㄴ',\n  'ガ':'가','ギ':'기','グ':'구','ゲ':'게','ゴ':'고',\n  'ザ':'자','ジ':'지','ズ':'즈','ゼ':'제','ゾ':'조',\n  'ダ':'다','ヂ':'지','ヅ':'즈','デ':'데','ド':'도',\n  'バ':'바','ビ':'비','ブ':'부','ベ':'베','ボ':'보',\n  'パ':'파','ピ':'피','プ':'푸','ペ':'페','ポ':'포',\n  'ー':''\n};\nfunction toKorean(kana) {\n  if (!kana) return '';\n  return [...kana].map(c => kanaToKorean[c] || c).join('');\n}\nconst tokens = ($json.tokens || []).map((t, idx, arr) => ({\n  surface: t.surface,\n  reading: toKorean(t.reading_kana || ''),\n  pos: t.pos,\n  startIdx: arr.slice(0, idx).reduce((s, x) => s + (x.surface?.length || 0), 0),\n  endIdx: arr.slice(0, idx + 1).reduce((s, x) => s + (x.surface?.length || 0), 0)\n}));\nreturn [{ json: { ...$json, tokens } }];"
+      },
+      "id": "node-romanize",
+      "name": "Kana -> Korean",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You are a Japanese-to-Korean translator. Return JSON: {title_ko, body_ko, token_meanings: [string per token]}\"},\n    {\"role\": \"user\", \"content\": $json.contentSnippet}\n  ],\n  \"response_format\": {\"type\": \"json_object\"}\n}",
+        "options": {}
+      },
+      "id": "node-llm",
+      "name": "LLM Translate (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// 토큰별 의미 병합\nconst llm = JSON.parse($json.choices[0].message.content);\nconst tokens = ($json.tokens || []).map((t, i) => ({\n  ...t,\n  meaning: (llm.token_meanings || [])[i] || ''\n}));\nreturn [{\n  json: {\n    source: 'NHK',\n    source_url: $json.link,\n    title_jp: $json.title,\n    title_ko: llm.title_ko,\n    body_jp: $json.contentSnippet,\n    body_ko: llm.body_ko,\n    tokens,\n    published_at: $json.pubDate\n  }\n}];"
+      },
+      "id": "node-merge",
+      "name": "Merge Translation + Tokens",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "articles",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "node-supabase",
+      "name": "Supabase Insert",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1740, 300]
+    }
+  ],
+  "connections": {
+    "Cron 06:00 KST": {
+      "main": [[{ "node": "Read RSS (NHK)", "type": "main", "index": 0 }]]
+    },
+    "Read RSS (NHK)": {
+      "main": [[{ "node": "Dedupe (max 20)", "type": "main", "index": 0 }]]
+    },
+    "Dedupe (max 20)": {
+      "main": [[{ "node": "Tokenize (Kuromoji)", "type": "main", "index": 0 }]]
+    },
+    "Tokenize (Kuromoji)": {
+      "main": [[{ "node": "Kana -> Korean", "type": "main", "index": 0 }]]
+    },
+    "Kana -> Korean": {
+      "main": [[{ "node": "LLM Translate (Groq)", "type": "main", "index": 0 }]]
+    },
+    "LLM Translate (Groq)": {
+      "main": [[{ "node": "Merge Translation + Tokens", "type": "main", "index": 0 }]]
+    },
+    "Merge Translation + Tokens": {
+      "main": [[{ "node": "Supabase Insert", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "active": false
+}
