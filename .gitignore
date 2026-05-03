@@ -5,6 +5,7 @@ dist/
 web-build/
 expo-start.log
 *.log
+app-screenshot*.png
 
 # 환경 변수
 .env
