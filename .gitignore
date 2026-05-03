@@ -3,6 +3,8 @@ node_modules/
 .expo-shared/
 dist/
 web-build/
+expo-start.log
+*.log
 
 # 환경 변수
 .env

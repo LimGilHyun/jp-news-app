@@ -15,8 +15,13 @@
       "adaptiveIcon": {
         "backgroundColor": "#ffffff"
       },
-      "permissions": ["INTERNET", "VIBRATE"]
+      "permissions": [
+        "INTERNET",
+        "VIBRATE"
+      ]
     },
-    "plugins": []
+    "plugins": [
+      "expo-asset"
+    ]
   }
 }
