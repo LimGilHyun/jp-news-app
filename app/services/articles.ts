@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { Article, Token } from '../types/article';
+import { Article, Sentence, Token } from '../types/article';
+import { getDeviceUserId } from '../utils/deviceUser';
 
 interface ArticleRow {
   id: string;
@@ -9,12 +10,27 @@ interface ArticleRow {
   title_ko: string | null;
   body_jp: string;
   body_ko: string | null;
-  tokens: Token[];
+  tokens?: Token[] | null;
+  sentences?: Sentence[] | null;
   thumbnail_url: string | null;
   difficulty: Article['difficulty'] | null;
   published_at: string;
   is_favorited?: boolean;
   is_read?: boolean;
+}
+
+function ensureSentences(row: ArticleRow): Sentence[] {
+  const s = row.sentences;
+  if (Array.isArray(s) && s.length > 0) return s;
+  // 백워드 호환: sentences가 비어있으면 본문 전체를 단일 문장으로 감쌈
+  return [
+    {
+      idx: 0,
+      text_jp: row.body_jp,
+      text_ko: row.body_ko ?? '',
+      tokens: row.tokens ?? [],
+    },
+  ];
 }
 
 const rowToArticle = (row: ArticleRow): Article => ({
@@ -25,7 +41,7 @@ const rowToArticle = (row: ArticleRow): Article => ({
   titleKo: row.title_ko ?? '',
   bodyJp: row.body_jp,
   bodyKo: row.body_ko ?? '',
-  tokens: row.tokens ?? [],
+  sentences: ensureSentences(row),
   thumbnailUrl: row.thumbnail_url ?? undefined,
   difficulty: row.difficulty ?? undefined,
   publishedAt: row.published_at,
@@ -50,9 +66,7 @@ export async function fetchArticleById(id: string): Promise<Article | null> {
 }
 
 export async function markAsRead(articleId: string): Promise<void> {
-  const { data: userResp } = await supabase.auth.getUser();
-  const userId = userResp.user?.id;
-  if (!userId) return;
+  const userId = await getDeviceUserId();
   const { error } = await supabase
     .from('user_activities')
     .upsert(
@@ -66,9 +80,7 @@ export async function toggleFavorite(
   articleId: string,
   next: boolean
 ): Promise<void> {
-  const { data: userResp } = await supabase.auth.getUser();
-  const userId = userResp.user?.id;
-  if (!userId) return;
+  const userId = await getDeviceUserId();
   const { error } = await supabase
     .from('user_activities')
     .upsert(

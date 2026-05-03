@@ -52,27 +52,17 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.KUROMOJI_URL }}/tokenize",
+        "url": "={{ $env.KUROMOJI_URL }}/tokenize-sentences",
         "jsonParameters": true,
         "bodyParametersJson": "={\n  \"text\": $json[\"contentSnippet\"] || $json[\"title\"]\n}",
         "options": {}
       },
       "id": "node-tokenize",
-      "name": "Tokenize (Kuromoji)",
+      "name": "Tokenize Sentences (Kuromoji)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [860, 300],
-      "_note": "출력 예: { tokens: [{surface, reading_kana, pos}, ...] }"
-    },
-    {
-      "parameters": {
-        "functionCode": "// 가타카나 -> 한국어 발음 매핑 (간이 매핑 테이블 예시)\nconst kanaToKorean = {\n  'ア':'아','イ':'이','ウ':'우','エ':'에','オ':'오',\n  'カ':'카','キ':'키','ク':'쿠','ケ':'케','コ':'코',\n  'サ':'사','シ':'시','ス':'스','セ':'세','ソ':'소',\n  'タ':'타','チ':'치','ツ':'츠','テ':'테','ト':'토',\n  'ナ':'나','ニ':'니','ヌ':'누','ネ':'네','ノ':'노',\n  'ハ':'하','ヒ':'히','フ':'후','ヘ':'헤','ホ':'호',\n  'マ':'마','ミ':'미','ム':'무','メ':'메','モ':'모',\n  'ヤ':'야','ユ':'유','ヨ':'요',\n  'ラ':'라','リ':'리','ル':'루','レ':'레','ロ':'로',\n  'ワ':'와','ヲ':'오','ン':'ㄴ',\n  'ガ':'가','ギ':'기','グ':'구','ゲ':'게','ゴ':'고',\n  'ザ':'자','ジ':'지','ズ':'즈','ゼ':'제','ゾ':'조',\n  'ダ':'다','ヂ':'지','ヅ':'즈','デ':'데','ド':'도',\n  'バ':'바','ビ':'비','ブ':'부','ベ':'베','ボ':'보',\n  'パ':'파','ピ':'피','プ':'푸','ペ':'페','ポ':'포',\n  'ー':''\n};\nfunction toKorean(kana) {\n  if (!kana) return '';\n  return [...kana].map(c => kanaToKorean[c] || c).join('');\n}\nconst tokens = ($json.tokens || []).map((t, idx, arr) => ({\n  surface: t.surface,\n  reading: toKorean(t.reading_kana || ''),\n  pos: t.pos,\n  startIdx: arr.slice(0, idx).reduce((s, x) => s + (x.surface?.length || 0), 0),\n  endIdx: arr.slice(0, idx + 1).reduce((s, x) => s + (x.surface?.length || 0), 0)\n}));\nreturn [{ json: { ...$json, tokens } }];"
-      },
-      "id": "node-romanize",
-      "name": "Kana -> Korean",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1080, 300]
+      "_note": "출력: { sentences: [{idx, text_jp, tokens: [{surface, reading, pos, ...}]}] }"
     },
     {
       "parameters": {
@@ -81,24 +71,24 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "jsonParameters": true,
-        "bodyParametersJson": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You are a Japanese-to-Korean translator. Return JSON: {title_ko, body_ko, token_meanings: [string per token]}\"},\n    {\"role\": \"user\", \"content\": $json.contentSnippet}\n  ],\n  \"response_format\": {\"type\": \"json_object\"}\n}",
+        "bodyParametersJson": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a Japanese language teacher translating Japanese news for Korean learners. Return STRICT JSON with this shape: { \\\"title_ko\\\": string, \\\"body_ko\\\": string, \\\"difficulty\\\": one of [\\\"N5\\\",\\\"N4\\\",\\\"N3\\\",\\\"N2\\\",\\\"N1\\\"], \\\"sentences\\\": [{ \\\"idx\\\": number, \\\"text_ko\\\": string, \\\"token_meanings\\\": string[] }] }. The token_meanings array MUST have exactly the same length and order as the input tokens of that sentence. Difficulty is judged by overall vocabulary level.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": $json.toJsonString({ title_jp: $json.title, body_jp: $json.contentSnippet || $json.title, sentences: ($json.sentences || []).map(s => ({ idx: s.idx, text_jp: s.text_jp, surface_tokens: s.tokens.map(t => t.surface) })) })\n    }\n  ],\n  \"response_format\": {\"type\": \"json_object\"}\n}",
         "options": {}
       },
       "id": "node-llm",
-      "name": "LLM Translate (Groq)",
+      "name": "LLM Translate + JLPT (Groq)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1300, 300]
+      "position": [1080, 300]
     },
     {
       "parameters": {
-        "functionCode": "// 토큰별 의미 병합\nconst llm = JSON.parse($json.choices[0].message.content);\nconst tokens = ($json.tokens || []).map((t, i) => ({\n  ...t,\n  meaning: (llm.token_meanings || [])[i] || ''\n}));\nreturn [{\n  json: {\n    source: 'NHK',\n    source_url: $json.link,\n    title_jp: $json.title,\n    title_ko: llm.title_ko,\n    body_jp: $json.contentSnippet,\n    body_ko: llm.body_ko,\n    tokens,\n    published_at: $json.pubDate\n  }\n}];"
+        "functionCode": "// LLM 응답을 Kuromoji sentences 구조와 병합\nconst llm = JSON.parse($json.choices[0].message.content);\nconst src = $node['Tokenize Sentences (Kuromoji)'].json;\nconst rssItem = $node['Dedupe (max 20)'].json;\nconst kSentences = src.sentences || [];\nconst lSentences = (llm.sentences || []).reduce((m, s) => { m[s.idx] = s; return m; }, {});\nconst sentences = kSentences.map(s => {\n  const ls = lSentences[s.idx] || { text_ko: '', token_meanings: [] };\n  return {\n    idx: s.idx,\n    text_jp: s.text_jp,\n    text_ko: ls.text_ko || '',\n    tokens: s.tokens.map((t, i) => ({\n      surface: t.surface,\n      reading: t.reading,\n      meaning: (ls.token_meanings || [])[i] || '',\n      pos: t.pos,\n      startIdx: t.startIdx,\n      endIdx: t.endIdx\n    }))\n  };\n});\nconst flatTokens = sentences.flatMap(s => s.tokens);\nreturn [{\n  json: {\n    source: 'NHK',\n    source_url: rssItem.link,\n    title_jp: rssItem.title,\n    title_ko: llm.title_ko,\n    body_jp: rssItem.contentSnippet || rssItem.title,\n    body_ko: llm.body_ko,\n    tokens: flatTokens,\n    sentences,\n    difficulty: ['N5','N4','N3','N2','N1'].includes(llm.difficulty) ? llm.difficulty : null,\n    published_at: rssItem.pubDate\n  }\n}];"
       },
       "id": "node-merge",
-      "name": "Merge Translation + Tokens",
+      "name": "Merge Sentences + LLM",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1520, 300]
+      "position": [1300, 300]
     },
     {
       "parameters": {
@@ -110,7 +100,7 @@
       "name": "Supabase Insert",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [1740, 300]
+      "position": [1520, 300]
     }
   ],
   "connections": {
@@ -121,18 +111,15 @@
       "main": [[{ "node": "Dedupe (max 20)", "type": "main", "index": 0 }]]
     },
     "Dedupe (max 20)": {
-      "main": [[{ "node": "Tokenize (Kuromoji)", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Tokenize Sentences (Kuromoji)", "type": "main", "index": 0 }]]
     },
-    "Tokenize (Kuromoji)": {
-      "main": [[{ "node": "Kana -> Korean", "type": "main", "index": 0 }]]
+    "Tokenize Sentences (Kuromoji)": {
+      "main": [[{ "node": "LLM Translate + JLPT (Groq)", "type": "main", "index": 0 }]]
     },
-    "Kana -> Korean": {
-      "main": [[{ "node": "LLM Translate (Groq)", "type": "main", "index": 0 }]]
+    "LLM Translate + JLPT (Groq)": {
+      "main": [[{ "node": "Merge Sentences + LLM", "type": "main", "index": 0 }]]
     },
-    "LLM Translate (Groq)": {
-      "main": [[{ "node": "Merge Translation + Tokens", "type": "main", "index": 0 }]]
-    },
-    "Merge Translation + Tokens": {
+    "Merge Sentences + LLM": {
       "main": [[{ "node": "Supabase Insert", "type": "main", "index": 0 }]]
     }
   },

@@ -67,7 +67,7 @@ export default function HomeScreen({ navigation }: Props) {
         )}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={loadArticles} />
+          <RefreshControl refreshing={loading} onRefresh={() => loadArticles({ force: true })} />
         }
         ListEmptyComponent={
           <View style={styles.center}>

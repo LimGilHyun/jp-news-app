@@ -117,6 +117,69 @@ app.get('/health', (_req, res) => {
   return res.status(503).json({ status: 'loading', ready: false });
 });
 
+function splitSentences(text) {
+  // 일본어 문장 구분: 。！？
+  const out = [];
+  let buf = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    buf += c;
+    if (c === '。' || c === '！' || c === '？') {
+      const trimmed = buf.trim();
+      if (trimmed.length > 0) out.push(trimmed);
+      buf = '';
+    }
+  }
+  const tail = buf.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
+function tokenizeText(text) {
+  const raw = tokenizerInstance.tokenize(text);
+  let cursor = 0;
+  return raw.map((t) => {
+    const surface = t.surface_form;
+    const startIdx = cursor;
+    const endIdx = cursor + surface.length;
+    cursor = endIdx;
+    const readingKana = t.reading || surface;
+    return {
+      surface,
+      reading_kana: readingKana,
+      reading: kanaToKorean(readingKana),
+      pos: mapPos(t.pos),
+      pos_jp: t.pos,
+      startIdx,
+      endIdx,
+    };
+  });
+}
+
+app.post('/tokenize-sentences', (req, res) => {
+  if (!tokenizerInstance) {
+    return res.status(503).json({ error: 'tokenizer not ready' });
+  }
+  const text = (req.body && req.body.text) || '';
+  if (typeof text !== 'string' || text.length === 0) {
+    return res.status(400).json({ error: 'body.text is required (string)' });
+  }
+  if (text.length > 10000) {
+    return res.status(413).json({ error: 'text too long (max 10000 chars)' });
+  }
+  try {
+    const parts = splitSentences(text);
+    const sentences = parts.map((text_jp, idx) => ({
+      idx,
+      text_jp,
+      tokens: tokenizeText(text_jp),
+    }));
+    res.json({ sentences });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 app.post('/tokenize', (req, res) => {
   if (!tokenizerInstance) {
     return res.status(503).json({ error: 'tokenizer not ready' });
