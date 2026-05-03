@@ -1,0 +1,10 @@
+# Nixpacks 자동 빌드 설정 (Dockerfile 대신 Nixpacks 사용 시)
+# Railway가 Dockerfile을 우선 인식하지만 fallback으로 동작합니다.
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install --omit=dev --no-audit --no-fund"]
+
+[start]
+cmd = "node server.js"
