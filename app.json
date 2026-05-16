@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.example.jpnewslearner"
@@ -21,7 +21,20 @@
       ]
     },
     "plugins": [
-      "expo-asset"
-    ]
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#6366f1"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "56979706-e47a-4071-9220-e049b952ac93"
+      }
+    },
+    "owner": "ghpjt"
   }
 }

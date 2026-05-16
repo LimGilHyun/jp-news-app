@@ -11,7 +11,8 @@ export type Difficulty = 'N5' | 'N4' | 'N3' | 'N2' | 'N1';
 
 export interface Token {
   surface: string;
-  reading: string;
+  reading: string;          // 한국어 발음 표기 (예: 토우쿄우)
+  reading_kana?: string;    // 원본 가타카나 (예: トウキョウ)
   meaning: string;
   pos: Pos;
   startIdx: number;
@@ -25,6 +26,48 @@ export interface Sentence {
   tokens: Token[];
 }
 
+export interface GrammarMatch {
+  sentenceIdx: number;
+  startTokenIdx: number;
+  endTokenIdx: number;
+}
+
+export interface GrammarPoint {
+  pattern: string;
+  meaning_ko: string;
+  example_jp: string;
+  example_ko: string;
+  jlpt: Difficulty;
+  match_indices?: GrammarMatch[];
+}
+
+export interface KeyVocab {
+  word: string;
+  reading: string;
+  reading_ko: string;
+  meaning_ko: string;
+  jlpt: Difficulty;
+}
+
+export interface QuizQuestion {
+  question_ko: string;
+  options: string[];
+  answer_idx: number;
+  explanation_ko: string;
+  grammar_idx: number;
+}
+
+export type CategoryName =
+  | '주요'
+  | '사회'
+  | '연애'
+  | '과학'
+  | '정치'
+  | '경제'
+  | '국제'
+  | '스포츠'
+  | '기상';
+
 export interface Article {
   id: string;
   source: string;
@@ -36,6 +79,11 @@ export interface Article {
   sentences: Sentence[];
   thumbnailUrl?: string;
   difficulty?: Difficulty;
+  grammarPoints: GrammarPoint[];
+  keyVocab: KeyVocab[];
+  quiz: QuizQuestion[];
+  category?: CategoryName;
+  rankInCategory?: number;
   publishedAt: string;
   isRead?: boolean;
   isFavorited?: boolean;

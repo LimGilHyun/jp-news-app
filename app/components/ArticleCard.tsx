@@ -106,6 +106,8 @@ const styles = StyleSheet.create({
   },
   titleJp: {
     fontSize: 17,
+    lineHeight: 23,
+    includeFontPadding: false,
     fontWeight: '700',
     color: '#0f172a',
     marginBottom: 4,

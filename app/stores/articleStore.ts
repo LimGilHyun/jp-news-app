@@ -10,6 +10,7 @@ import {
   toggleFavorite as toggleFavoriteRemote,
 } from '../services/articles';
 import { isSupabaseConfigured } from '../services/supabase';
+import { useStatsStore } from './statsStore';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
 
@@ -53,8 +54,19 @@ export const useArticleStore = create<ArticleState>()(
             set({ articles: mockArticles, loading: false, lastFetchedAt: Date.now() });
             return;
           }
-          const articles = await fetchUnreadArticles();
-          set({ articles, loading: false, lastFetchedAt: Date.now() });
+          const fetched = await fetchUnreadArticles();
+          // 로컬 read/favorite 상태 보존 — 서버 데이터에 덮어쓰기 시 사용자 진척 유지
+          const oldById = new Map(get().articles.map((a) => [a.id, a]));
+          const merged: Article[] = fetched.map((a) => {
+            const old = oldById.get(a.id);
+            if (!old) return a;
+            return {
+              ...a,
+              isRead: a.isRead || old.isRead,
+              isFavorited: a.isFavorited || old.isFavorited,
+            };
+          });
+          set({ articles: merged, loading: false, lastFetchedAt: Date.now() });
         } catch (err) {
           const message = err instanceof Error ? err.message : '기사 로딩 실패';
           set({ error: message, loading: false });
@@ -64,11 +76,15 @@ export const useArticleStore = create<ArticleState>()(
       selectToken: (token) => set({ selectedToken: token }),
 
       markAsRead: async (articleId) => {
+        const wasRead = get().articles.find((a) => a.id === articleId)?.isRead;
         set((state) => ({
           articles: state.articles.map((a) =>
             a.id === articleId ? { ...a, isRead: true } : a
           ),
         }));
+        if (!wasRead) {
+          useStatsStore.getState().grantArticleRead(articleId);
+        }
         if (!get().useMockData) {
           try {
             await markAsReadRemote(articleId);

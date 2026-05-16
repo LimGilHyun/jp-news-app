@@ -22,7 +22,7 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'cron_service_role_key') THEN
     PERFORM vault.create_secret(
-      'PASTE_YOUR_SERVICE_ROLE_KEY_HERE'::text,
+      '<SERVICE_ROLE_KEY>'::text,
       'cron_service_role_key',
       'Used by pg_cron to invoke daily-news-fetch Edge Function'
     );

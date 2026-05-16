@@ -1,5 +1,12 @@
 import { supabase } from './supabase';
-import { Article, Sentence, Token } from '../types/article';
+import {
+  Article,
+  GrammarPoint,
+  KeyVocab,
+  QuizQuestion,
+  Sentence,
+  Token,
+} from '../types/article';
 import { getDeviceUserId } from '../utils/deviceUser';
 
 interface ArticleRow {
@@ -14,6 +21,11 @@ interface ArticleRow {
   sentences?: Sentence[] | null;
   thumbnail_url: string | null;
   difficulty: Article['difficulty'] | null;
+  grammar_points?: GrammarPoint[] | null;
+  key_vocab?: KeyVocab[] | null;
+  quiz?: QuizQuestion[] | null;
+  category?: string | null;
+  rank_in_category?: number | null;
   published_at: string;
   is_favorited?: boolean;
   is_read?: boolean;
@@ -44,6 +56,11 @@ const rowToArticle = (row: ArticleRow): Article => ({
   sentences: ensureSentences(row),
   thumbnailUrl: row.thumbnail_url ?? undefined,
   difficulty: row.difficulty ?? undefined,
+  grammarPoints: Array.isArray(row.grammar_points) ? row.grammar_points : [],
+  keyVocab: Array.isArray(row.key_vocab) ? row.key_vocab : [],
+  quiz: Array.isArray(row.quiz) ? row.quiz : [],
+  category: (row.category as Article['category']) ?? undefined,
+  rankInCategory: row.rank_in_category ?? undefined,
   publishedAt: row.published_at,
   isFavorited: row.is_favorited ?? false,
   isRead: row.is_read ?? false,

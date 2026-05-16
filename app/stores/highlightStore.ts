@@ -10,6 +10,7 @@ import {
 } from '../services/highlights';
 import { isSupabaseConfigured } from '../services/supabase';
 import { applySrs } from '../utils/srs';
+import { useStatsStore } from './statsStore';
 
 interface HighlightState {
   highlights: Highlight[];
@@ -40,31 +41,41 @@ export const useHighlightStore = create<HighlightState>((set, get) => ({
   },
 
   addHighlight: async (input) => {
+    const buildLocal = (): Highlight => ({
+      id: 'local-' + Date.now(),
+      articleId: input.articleId,
+      sentenceIdx: input.sentenceIdx,
+      startTokenIdx: input.startTokenIdx,
+      endTokenIdx: input.endTokenIdx,
+      selectedText: input.selectedText,
+      reading: input.reading,
+      meaning: input.meaning,
+      color: input.color ?? 'yellow',
+      note: input.note,
+      createdAt: new Date().toISOString(),
+      easeFactor: 2.5,
+      intervalDays: 0,
+      repetition: 0,
+      nextReviewAt: new Date().toISOString(),
+    });
+
     if (!isSupabaseConfigured) {
-      // 더미 모드
-      const local: Highlight = {
-        id: 'local-' + Date.now(),
-        articleId: input.articleId,
-        sentenceIdx: input.sentenceIdx,
-        startTokenIdx: input.startTokenIdx,
-        endTokenIdx: input.endTokenIdx,
-        selectedText: input.selectedText,
-        reading: input.reading,
-        meaning: input.meaning,
-        color: input.color ?? 'yellow',
-        note: input.note,
-        createdAt: new Date().toISOString(),
-        easeFactor: 2.5,
-        intervalDays: 0,
-        repetition: 0,
-        nextReviewAt: new Date().toISOString(),
-      };
+      const local = buildLocal();
       set((s) => ({ highlights: [local, ...s.highlights] }));
       return local;
     }
-    const created = await createRemote(input);
-    set((s) => ({ highlights: [created, ...s.highlights] }));
-    return created;
+
+    // Supabase 설정돼 있으면 우선 remote 시도, 실패 시 local 로 폴백
+    try {
+      const created = await createRemote(input);
+      set((s) => ({ highlights: [created, ...s.highlights] }));
+      return created;
+    } catch (e) {
+      console.warn('Supabase 단어장 저장 실패 → 로컬 저장으로 폴백:', e);
+      const local = buildLocal();
+      set((s) => ({ highlights: [local, ...s.highlights] }));
+      return local;
+    }
   },
 
   removeHighlight: async (id) => {
@@ -81,6 +92,7 @@ export const useHighlightStore = create<HighlightState>((set, get) => ({
   reviewHighlight: async (id, quality) => {
     const target = get().highlights.find((h) => h.id === id);
     if (!target) return;
+    useStatsStore.getState().grantVocabReview();
     if (isSupabaseConfigured && !id.startsWith('local-')) {
       try {
         const updated = await reviewRemote(target, quality);
